@@ -1,0 +1,365 @@
+ set romsize 128kRAM
+ set tv ntsc
+ set zoneheight 16
+ set doublewide on ;This tells MARIA to fetch 2 bytes of character data for each character you plot, effectively making the characters twice as wide.
+ set screenheight 224 ;208
+ set dlmemory $2200 $27FF
+ ;set dlmemory $4000 $4fff
+
+
+ displaymode 160A
+ set basepath graphics ; This sets the compiler to look for all of your image files in <root folder>\basepath.
+
+ bank 1
+ gosub clearPalettes
+
+ const bgTile = #<(tiles2+0)
+ characterset tiles0
+
+
+
+
+
+
+ ;tiled
+ ;tilewidth: 8 (characterwidth x2)
+ ;tileheight: 16 (same as zoneheight)
+ ;mapwidth: 20
+ ;mapheight 14
+
+
+
+
+ dim tileMap = $4000
+ memcpy tileMap level1bigger 3060 ;255x12
+
+
+ dim playerX = a.b : dim playerXInt = a : dim playerXFrac = b : a = 8
+ dim playerY = c.d : dim playerYInt = c : dim playerYFrac = d : c = 80
+
+  dim coarseScrollX = k
+  dim fineScrollX = l
+  dim mapSize = m
+
+  rem ** These are defining the map you're using. MapSize is the total number of characters in a row of your map.
+  mapSize = 255
+
+
+ dim charValue = e
+ const screenOffsetX = -8
+ const screenOffsetY = 16 * 2
+
+ const playerHeightMinusOne = 15
+ const playerWidthMinusOne = 7
+
+ const tileHeight = 16 ; const can't be used after * only /
+ const tileWidth = 8
+
+; def tileHeightMask=%00001111
+ ;def tileWidthMask=%00000111
+
+ const tileHeightMask = %00001111
+ const tileWidthMask = %00000111
+
+ def leftSlide=f{0}
+ def rightSlide=f{1}
+ def movingUp=f{2} ;no spaces with def
+ def jumpRestrainer=f{3}
+
+ dim playerVelocityY = g.h : dim playerVelocityYInt = g : dim playerVelocityYFrac = h
+ dim playerVelocityX = i.j : dim playerVelocityXInt = i : dim playerVelocityXFrac = j
+ def accelerationY=0.25
+ def accelerationX=0.125
+
+ dim scrollCounter = o
+ dim windowX = p
+
+ dim enemy1X = q.r : dim enemy1Visible = q : dim enemy1XInt = r : q = 1 : r = 128
+ dim enemy1Y = s : s = 16 * 12
+
+ def enemy1Left=t{0}
+
+ def _top=(playerYInt-screenOffsetY)/tileHeight
+ def _bottom=((playerYInt-screenOffsetY)+playerHeightMinusOne)/tileHeight
+ def _left=(((playerXInt-fineScrollX)-screenOffsetX)/tileWidth)+coarseScrollX
+ def _right=((((playerXInt-fineScrollX)-screenOffsetX)+playerWidthMinusOne)/tileWidth)+coarseScrollX
+
+
+ temp1 = fineScrollX - 8
+ doublebuffer on
+ clearscreen
+ plotmap tileMap 0 temp1 2 21 12 coarseScrollX 0 mapSize
+ savescreen
+ ;drawscreen
+
+ ;player
+ P3C1 = $c3
+ P3C2 = $c3
+ P3C3 = $c3
+
+ ;enemy
+ P4C1 = $33
+ P4C2 = $33
+ P4C3 = $33
+
+ ;blue tile
+ P0C1 = $85
+ P0C2 = $89
+ P0C3 = $8d
+main
+
+ ;logic here
+
+
+   ;***************************************************************
+   ;
+   ;  Right movement section.
+   ;
+   ;```````````````````````````````````````````````````````````````
+ if leftSlide then goto skipRight ; skips right section if player is sliding left.
+ if !joy0right then goto slideRight
+
+ if playerVelocityXInt < 2 then playerVelocityX = playerVelocityX + accelerationX ; increases speed if not at maximum.
+ rightSlide = 1 ; turns on right slide bit (remembers direction when joystick is let go)
+ goto moveRight ; Jumps to sprite movement (skips slide).
+
+slideRight
+ if !rightSlide then skipSlideRight ;  Skips slide if right slide bit is off.
+ playerVelocityX = playerVelocityX - accelerationX
+ if playerVelocityXInt = 0 && playerVelocityXFrac = 0 then rightSlide = 0    ;  Turns off right slide bit if both integer and fraction of speed is zero.
+
+moveRight
+ playerX = playerX + playerVelocityX
+
+ x = _right
+ y = _top
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; top right
+ if charValue = bgTile then goto hitRightWall
+
+ y = _bottom
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; bottom right
+ if charValue = bgTile then goto hitRightWall
+ goto noRightWall
+
+hitRightWall
+ playerXInt = playerXInt - (playerXInt & tileWidthMask)
+ ;playerXInt = (((x * tileWidth) - tileWidth) + screenOffsetX) - windowX
+ rightSlide = 0 
+ playerVelocityXInt = 0 : playerVelocityXFrac = 0
+
+noRightWall
+ if playerXInt >= 152 then scrollCounter = 152 : gosub scrollRight
+skipSlideRight
+skipRight
+
+   
+
+
+
+
+   ;***************************************************************
+   ;
+   ;  Left movement section.
+   ;
+   ;```````````````````````````````````````````````````````````````
+ if rightSlide then goto skipLeft
+ if !joy0left then goto slideLeft
+
+ if playerVelocityXInt < 2 then playerVelocityX = playerVelocityX + accelerationX ; increases speed if not at maximum.
+ leftSlide = 1 ; turns on left slide bit (remembers direction when joystick is let go)
+ goto moveLeft ; Jumps to sprite movement (skips slide).
+
+slideLeft
+ if !leftSlide then skipSlideLeft ;  skips slide if left slide bit is off.
+ playerVelocityX = playerVelocityX - accelerationX
+ if playerVelocityXInt = 0 && playerVelocityXFrac = 0 then leftSlide = 0    ;  Turns off left slide bit if both integer and fraction of speed is zero.
+
+moveLeft
+ playerX = playerX - playerVelocityX
+
+ x = _left
+ y = _top
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; top left
+ if charValue = bgTile then goto hitLeftWall
+
+ y = _bottom
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; bottom left
+ if charValue = bgTile then goto hitLeftWall
+ goto noLeftWall
+
+hitLeftWall
+ playerXInt = playerXInt + (tileWidth - playerXInt & tileWidthMask)
+ ;playerXInt = (((x * tileWidth) + tileWidth) + screenOffsetX) - windowX
+ leftSlide = 0 
+ playerVelocityXInt = 0 : playerVelocityXFrac = 0
+
+noLeftWall
+ if playerXInt + 8 <= 8 then scrollCounter = 152 : gosub scrollLeft
+skipSlideLeft
+skipLeft
+
+   
+
+ temp1 = enemy1XInt + windowX
+ if temp1 = 200 then enemy1Left = 1
+ if temp1 = 16 then enemy1Left = 0
+ if enemy1Left then enemy1X = enemy1X - 0.00390625 else enemy1X = enemy1X + 0.00390625
+
+
+  fineScrollX = fineScrollX & 7 ; 0 to 7 range
+
+  if !jumpRestrainer && joy0fire0 then jumpRestrainer = 1 : movingUp = 1 : playerVelocityY = 4.25 ;: goto jump
+  if !movingUp then gosub __down else gosub __up
+
+
+ restorescreen
+ ;clearscreen
+ ;plot here
+ ;plotmap tileMap 0 temp1 2 21 12 coarseScrollX 0 mapSize
+ if enemy1Visible = 0 && enemy1XInt + 8 >= 0 && enemy1XInt <= 168 then x = enemy1XInt - 8 : plotsprite enemySprite 4 x enemy1Y 0 1
+ plotsprite playerSprite 3 playerXInt playerYInt 0 1
+ ;drawscreen
+ doublebuffer flip
+
+ goto main
+
+clearPalettes
+ BACKGRND = $00
+ ;before screen change
+ P0C1 = $00 : P0C2 = $00 : P0C3 = $00 : P1C1 = $00 : P1C2 = $00 : P1C3 = $00 : P2C1 = $00 : P2C2 = $00 : P2C3 = $00
+ P3C1 = $00 : P3C2 = $00 : P3C3 = $00 : P4C1 = $00 : P4C2 = $00 : P4C3 = $00 : P5C1 = $00 : P5C2 = $00 : P5C3 = $00
+ P6C1 = $00 : P6C2 = $00 : P6C3 = $00 : P7C1 = $00 : P7C2 = $00 : P7C3 = $00
+
+ return thisbank
+
+
+__down
+ playerVelocityY = playerVelocityY - accelerationY ; speed - acc
+ playerY = playerY - playerVelocityY ; player - speed
+
+ ;temp4 = playerYInt & tileHeightMask
+
+ y = _bottom
+ x = _left
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; one pixel below bottom left
+ if charValue = bgTile then goto skipMovingDown
+
+ x = _right
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; one pixel below bottom right
+ if charValue = bgTile then goto skipMovingDown
+ return
+
+skipMovingDown
+ playerYInt = playerYInt - (playerYInt & tileHeightMask)
+ ;playerYInt = (((y * tileHeight) - tileHeight) + screenOffsetY) ; you hit ground, place player one row above the one you hit
+ playerVelocityYInt = 0 : playerVelocityYFrac = 0 ; ..set speed to zero
+ jumpRestrainer = 0 ; .. and reset restrainer so you can jump again after touching ground
+ return
+
+
+__up
+ playerVelocityY = playerVelocityY - accelerationY ; speed - acc
+ playerY = playerY - playerVelocityY ; player - speed
+ if playerVelocityYInt = 0 && playerVelocityYFrac = 0 then movingUp = 0 ; if you don't hit anything, start naturally falling down
+
+ ;temp4 = tileHeight - playerYInt & tileHeightMask
+
+ y = _top
+ x = _left
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; one pixel above top left
+ if charValue = bgTile then goto skipMovingUp
+
+ x = _right
+ charValue = peekchar( tileMap, x, y, 255, 12 ) ; one pixel above top right
+ if charValue = bgTile then goto skipMovingUp
+ return
+
+skipMovingUp
+ playerYInt = playerYInt + (tileHeight - playerYInt & tileHeightMask)
+ ;playerYInt = ((y * tileHeight) + tileHeight) + screenOffsetY ; you hit roof, place player one row below the one you hit
+ playerVelocityYInt = 0 : playerVelocityYFrac = 0 ; ..set speed to zero
+ movingUp = 0 ; ..and start moving down
+ return
+
+
+scrollLeft
+ if coarseScrollX = 0 then return
+     windowX = windowX - 1
+     if fineScrollX = 7 then fineScrollX = 0 : coarseScrollX = coarseScrollX - 1 else fineScrollX = fineScrollX + 1 ;: fineScrollX = fineScrollX&7
+
+ playerXInt = playerXInt + 1
+  enemy1X = enemy1X + 0.00390625 ;1/256
+
+ temp1 = fineScrollX - 8
+ ;doublebuffer on
+ clearscreen
+ plotmap tileMap 0 temp1 2 21 12 coarseScrollX 0 mapSize
+ if enemy1Visible = 0 && enemy1XInt + 8 >= 0 && enemy1XInt <= 168 then x = enemy1XInt - 8 : plotsprite enemySprite 4 x enemy1Y 0 1
+ plotsprite playerSprite 3 playerXInt playerYInt 0 1
+ ;drawscreen
+ doublebuffer flip
+
+ scrollCounter = scrollCounter - 1
+ if scrollCounter > 0 then goto scrollLeft
+
+ ;save screen after scrolling
+ temp1 = fineScrollX - 8
+ clearscreen
+ plotmap tileMap 0 temp1 2 21 12 coarseScrollX 0 mapSize
+
+ savescreen
+ if enemy1Visible = 0 && enemy1XInt + 8 >= 0 && enemy1XInt <= 168 then x = enemy1XInt - 8 : plotsprite enemySprite 4 x enemy1Y 0 1
+ plotsprite playerSprite 3 playerXInt playerYInt 0 1
+ ;drawscreen
+ return
+
+scrollRight
+ windowX = windowX + 1
+ if coarseScrollX = mapSize - 20 then return
+     if fineScrollX = 0 then fineScrollX = 7 : coarseScrollX = coarseScrollX + 1 else fineScrollX = fineScrollX - 1 ;: fineScrollX = fineScrollX&7
+ 
+ playerXInt = playerXInt - 1
+  enemy1X = enemy1X - 0.00390625 ;1/256
+
+ temp1 = fineScrollX - 8
+ ;doublebuffer on
+ clearscreen
+ plotmap tileMap 0 temp1 2 21 12 coarseScrollX 0 mapSize
+ if enemy1Visible = 0 && enemy1XInt + 8 >= 0 && enemy1XInt <= 168 then x = enemy1XInt - 8 : plotsprite enemySprite 4 x enemy1Y 0 1
+ plotsprite playerSprite 3 playerXInt playerYInt 0 1
+ ;drawscreen
+ doublebuffer flip
+
+ scrollCounter = scrollCounter - 1
+ if scrollCounter > 0 then goto scrollRight
+
+ ;save screen after scrolling
+ temp1 = fineScrollX - 8
+ clearscreen
+ plotmap tileMap 0 temp1 2 21 12 coarseScrollX 0 mapSize
+
+ savescreen
+ if enemy1Visible = 0 && enemy1XInt + 8 >= 0 && enemy1XInt <= 168 then x = enemy1XInt - 8 : plotsprite enemySprite 4 x enemy1Y 0 1
+ plotsprite playerSprite 3 playerXInt playerYInt 0 1
+ ;drawscreen
+ return
+
+ bank 2
+ bank 3
+ bank 4
+ bank 5
+ bank 6
+ bank 7
+ bank 8
+
+ incgraphic playerSprite.png 160A 0 2 3 1
+ incgraphic enemySprite.png 160A 0 2 3 4
+
+ ;empty tile
+ incgraphic tiles0.png 160A 0 1 2 3 0
+
+ ;blue tile
+ incgraphic tiles2.png 160A 0 1 2 3 0
+
+
+ incmapfile level1bigger.tmx
